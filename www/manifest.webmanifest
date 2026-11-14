@@ -1,0 +1,13 @@
+{
+  "name": "Çağrı Simülatör",
+  "short_name": "Çağrı Sim",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#0d0716",
+  "theme_color": "#0d0716",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

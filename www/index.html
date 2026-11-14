@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0d0716">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Çağrı Sim">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);box-sizing:border-box}</style>
+<title>Çağrı Simülatör</title>
+<style>
+/* font yerel: APK internetsiz de çalışsın */
+@font-face{font-family:'Press Start 2P';src:url(ps2p-latin-ext.woff2) format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:'Press Start 2P';src:url(ps2p-latin.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+</style>
+<style>
+/* Single dark arcade look: one portrait canvas, pixel-scaled to fit the screen */
+:root { --bg:#0d0716; color-scheme:dark }
+html,body { height:100%; margin:0; background:var(--bg); overflow:hidden; touch-action:none; user-select:none; -webkit-user-select:none; -webkit-tap-highlight-color:transparent }
+#wrap { height:100%; display:flex; align-items:center; justify-content:center }
+canvas { image-rendering:pixelated; image-rendering:crisp-edges; display:block; background:#000; outline:none }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c" width="180" height="320" tabindex="0" aria-label="Çağrı Simülatör oyunu. Alttaki üç tuşa ya da A S D tuşlarına bas."></canvas></div>
+<script>
+// ======= AYARLAR =======
+const NAME = "ÇAĞRI";          // başlık ve yazılarda büyük harf
+const NM = "Çağrı";            // hikaye metinlerinde
+// lavukluk barı: 0..100, her isabette dolar
+const addLav = n => { lav = Math.min(100, lav + n); };
+// Son şarkıda sol üstte inen yazılar. t = bölüm başından saniye (şarkı ~39 sn).
+// Söz eklemek için: { t: 4, s: 'satır' } gibi satır ekle.
+const LYRICS = [
+  { t: 0.5, s: 'TEOMAN - PARAMPARÇA' },
+];
+
+// ======= TEMEL =======
+const W = 180, H = 320;
+const cv = document.getElementById('c'), g = cv.getContext('2d');
+const wrap = document.getElementById('wrap');
+function fit() { const s = Math.min(wrap.clientWidth / W, wrap.clientHeight / H); cv.style.width = W * s + 'px'; cv.style.height = H * s + 'px'; }
+addEventListener('resize', fit); fit();
+const FONT = s => `${s}px "Press Start 2P", monospace`;
+document.fonts && document.fonts.load(FONT(8), "AĞŞİÇÖÜ");
+
+const LANE_X = [36, 90, 144], LANE_COL = ['#ff4d6d', '#ffd23f', '#3fa7ff'], LANE_DARK = ['#9e2240', '#a8801a', '#1f5fa3'];
+const SCN0 = 14, SCN1 = 168, LANE_TOP = 168, HITY = 262, PANEL = 276, BTN_Y = 297, TRAVEL = 1.4, LEAD = 4;
+const SPEED = (HITY - LANE_TOP) / TRAVEL;
+
+function txt(s, x, y, col = '#fff', align = 'left', size = 8, shadow = '#000') {
+  g.font = FONT(size); g.textAlign = align; g.textBaseline = 'top';
+  if (shadow) { g.fillStyle = shadow; g.fillText(s, Math.round(x) + 1, Math.round(y) + 1); }
+  g.fillStyle = col; g.fillText(s, Math.round(x), Math.round(y));
+}
+function wrapText(s, maxW) {
+  g.font = FONT(8); const out = []; let cur = '';
+  for (const w of s.split(' ')) { const t = cur ? cur + ' ' + w : w; if (g.measureText(t).width > maxW && cur) { out.push(cur); cur = w; } else cur = t; }
+  if (cur) out.push(cur); return out;
+}
+const rect = (x, y, w, h, c) => { g.fillStyle = c; g.fillRect(Math.round(x), Math.round(y), w, h); };
+const circ = (x, y, r, c) => { g.fillStyle = c; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); };
+const fmt = n => Math.round(n).toLocaleString('tr-TR');
+function rng(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+// ======= KARAKTER (uzun boylu, kefiyeli) =======
+const HERO = [
+  "....KKKKKKK.....", "..KKHHHHHHHKK...", ".KHHHHHHHHHHHK..", "KHHHHHHHHHHHHHK.", "KHHHHHHHHHHHHHK.",
+  "KHHSHHHHSHHHHHK.", ".KHSSSSSSSSSHHK.", ".KSSSSSSSSSSSHK.", ".KSSKKSSSKKSSSK.", ".KSSKWSSSKWSSSK.",
+  ".KSSSSSSSSSSSSK.", ".KsSSSSSSSSSSsK.", "..KSSSSsSSSSSK..", "..KSSSSKKSSSSK..", "...KKSSSSSSKK...",
+  "....KKSSSSKK....", "...KRWRWRWRWK...", "..KWRWRWRWRWRK..", ".KTRWRWRWRWRWTK.", ".KTTWRWRWRWRTTK.",
+  ".KTTTRWRTTTTTTK.", ".KTtTWRWTTTTtTK.", ".KTtTRWRTTTTtTK.", ".KTtTWRWTTTTtTK.", ".KTtTKRKTTTTtTK.",
+  ".KTtTTTTTTTTtTK.", ".KTtTTTTTTTTtTK.", ".KSKTTTTTTTTKSK.", ".KSKJJJJJJJJKSK.", "..KKJJJJJJJJKK..",
+  "...KJJJJJJJJK...", "...KJJJKKJJJK...", "...KJJjKKJJjK...", "...KJJjKKJJjK...", "...KJJjKKJJjK...",
+  "...KJJjKKJJjK...", "...KJJjKKJJjK...", "...KJJjKKJJjK...", "...KJJjKKJJjK...", "...KJJJKKJJJK...",
+  "..KBBBBKKBBBBK..", "..KGGGGKKGGGGK..", "..KKKKKKKKKKKK.."];
+const PAL = { K: '#1a1020', H: '#3b2416', S: '#f2c39b', s: '#d99a72', W: '#f4efe6', R: '#c8202f', T: '#2e5a4a', t: '#22443a', J: '#2d3f73', j: '#22305a', B: '#ececec', G: '#8a8a9a' };
+const RIVAL = { H: '#a8a8b0', S: '#d4a07a', s: '#b07d58', R: '#303030', W: '#7a7a7a', T: '#6b2f2f', t: '#4f2222', J: '#3a3a3a', j: '#2a2a2a', B: '#5a3a2a', G: '#3a2a1a' };
+const cache = {};
+function sprite(key) {
+  if (cache[key]) return cache[key];
+  const over = key === 'rival' ? RIVAL : {}, c = document.createElement('canvas'); c.width = 16; c.height = HERO.length;
+  const x = c.getContext('2d');
+  HERO.forEach((row, r) => [...row].forEach((ch, col) => { if (ch !== '.') { x.fillStyle = over[ch] || PAL[ch]; x.fillRect(col, r, 1, 1); } }));
+  return cache[key] = c;
+}
+// cx = merkez, feet = ayak hizası; karakterin tepe y'sini döndürür
+function drawChar(key, cx, feet, sc = 2) {
+  const img = sprite(key), x = Math.round(cx - 8 * sc), y = Math.round(feet - img.height * sc);
+  g.imageSmoothingEnabled = false; g.drawImage(img, x, y, 16 * sc, img.height * sc);
+  if (key === 'rival') rect(x + 4 * sc, y + 12 * sc, 7 * sc, sc, '#e6e6ea'); // bıyık
+  return y;
+}
+function scarfFlutter(cx, top, sc, t) { // kefiye ucu rüzgarda
+  const f = Math.sin(t * 6) > 0 ? 1 : 0;
+  for (let i = 0; i < 4; i++) rect(cx + 6 * sc + i * sc * 1.5, top + (17 + i + f * (i % 2)) * sc, sc * 1.5, sc, i % 2 ? '#f4efe6' : '#c8202f');
+}
+
+// ======= SES =======
+let actx = null, master, noiseBuf;
+function initAudio() {
+  if (actx) { if (actx.state === 'suspended') actx.resume(); return; }
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    master = actx.createGain(); master.gain.value = .45; master.connect(actx.destination);
+    noiseBuf = actx.createBuffer(1, actx.sampleRate * .6, actx.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  } catch (e) { actx = null; }
+}
+const now = () => actx ? actx.currentTime : performance.now() / 1000;
+function tone(at, f, dur, type = 'square', vol = .1, slide) {
+  if (!actx) return; const o = actx.createOscillator(), v = actx.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, at); if (slide) o.frequency.exponentialRampToValueAtTime(slide, at + dur);
+  v.gain.setValueAtTime(vol, at); v.gain.exponentialRampToValueAtTime(.0001, at + dur);
+  o.connect(v).connect(master); o.start(at); o.stop(at + dur + .02);
+}
+function noise(at, dur, vol, freq, type = 'highpass') {
+  if (!actx) return; const s = actx.createBufferSource(), f = actx.createBiquadFilter(), v = actx.createGain();
+  s.buffer = noiseBuf; f.type = type; f.frequency.value = freq;
+  v.gain.setValueAtTime(vol, at); v.gain.exponentialRampToValueAtTime(.0001, at + dur);
+  s.connect(f).connect(v).connect(master); s.start(at); s.stop(at + dur + .02);
+}
+const blip = (f = 660) => tone(now(), f, .08, 'square', .06);
+
+// ======= HİKAYE & BÖLÜMLER =======
+const LEVELS = [
+  { name: 'MAHALLE POTASI', bg: 'court', bpm: 100, bars: 12, seed: 3, density: .45, eighths: false, bass: [55, 55, 65.4, 49] },
+  { name: 'DUMAN KRALI', bg: 'cafe', bpm: 112, bars: 14, seed: 7, density: .5, eighths: true, bass: [41.2, 41.2, 49, 55] },
+  { name: 'SON ŞARKI', bg: 'stage', bpm: 104, bars: 16, seed: 11, density: .6, eighths: true, bass: [82.4, 98, 110, 73.4] },
+];
+const STEPS = [
+  { t: 'story', bg: 'room', lines: [
+    `Bugün ${NM}'nın doğum günü!`,
+    `Ve ${NM}'nın bugün sıkıntıdan patlamaması için yapması gereken 3 önemli görev var.`,
+    `Hedef: başarmak.`,
+    `Kefiyeyi tak. Hadi başlayalım!`] },
+  { t: 'story', bg: 'court', title: 'BÖLÜM 1', sub: 'MAHALLE POTASI', lines: [
+    `İlk durak: mahallenin efsane potası.`,
+    `Şut metresi dolarken izle. Tam yeşildeyken ekrana bas, top fileyi sallasın!`,
+    `Erken ya da geç kalma. Yeşili yakala, ${NM}!`] },
+  { t: 'play', lvl: 0 },
+  { t: 'story', bg: 'cafe', title: 'BÖLÜM 2', sub: 'DUMAN KRALI', rival: true, lines: [
+    `Robin Hood'un arka masasında bir efsane bekliyor: Dumancı Baba.`,
+    `BABA: "Evlat, bu masada benden büyük bulut çıkaran olmadı."`,
+    `Ritmi tuttur, bulutunu büyüt, Babayı tahtından indir!`] },
+  { t: 'play', lvl: 1 },
+  { t: 'story', bg: 'stage', title: 'BÖLÜM 3', sub: 'SON ŞARKI', lines: [
+    `Artık son şarkı zamanı. Işıklar kısıldı, sahnede tek bir bar taburesi.`,
+    `${NM} taburesine oturdu, gitarı kucağına aldı.`,
+    `ÇAĞRI: "Herkese geldiği için teşekkür ederim."`,
+    `ÇAĞRI: "Son şarkı olarak... Teoman, Paramparça."`,
+    `Salon sustu. Telefon ışıkları yandı. ${NM} ilk akoru bastı...`] },
+  { t: 'play', lvl: 2 },
+  { t: 'end' },
+];
+
+let scene = 'title', step = -1, story = null, P = null, lav = 0, sceneT = 0, confetti = [];
+let scores = [0, 0, 0], total = 0, best = 0, newBest = false;
+function rankName(l) { return l < 25 ? 'ÇIRAK LAVUK' : l < 50 ? 'MAHALLE LAVUĞU' : l < 75 ? 'PROFESYONEL LAVUK' : 'LAVUKLARIN KRALI'; }
+function go(i) {
+  step = i; sceneT = 0; const s = STEPS[i];
+  if (!s) { scene = 'title'; return; }
+  if (s.t === 'story') { scene = 'story'; story = { s, line: 0, chars: 0 }; }
+  else if (s.t === 'play') startLevel(s.lvl);
+  else {
+    scene = 'end'; confetti = []; total = scores.reduce((a, b) => a + b, 0) + Math.round(lav) * 100;
+    try { best = +localStorage.getItem('cagri-best') || 0; newBest = total > best; if (newBest) { best = total; localStorage.setItem('cagri-best', total); } } catch (e) { best = total; newBest = false; } tone(now(), 523, .15, 'square', .08); tone(now() + .15, 659, .15, 'square', .08); tone(now() + .3, 784, .4, 'square', .08); }
+}
+
+function makeChart(L) {
+  const r = rng(L.seed), b = 60 / L.bpm, out = []; let prev = -1;
+  for (let s = 0; s < L.bars * 8; s++) {
+    const p = s % 2 === 0 ? L.density + .25 : (L.eighths ? L.density * .6 : 0);
+    if (r() < p) {
+      let lane = Math.floor(r() * 3);
+      if (lane === prev && r() < .5) lane = (lane + 1 + Math.floor(r() * 2)) % 3;
+      prev = lane; out.push({ t: (LEAD + s / 2) * b, lane, judged: false });
+    }
+  }
+  return out;
+}
+function startLevel(i) {
+  const L = LEVELS[i], notes = makeChart(L);
+  scene = 'play';
+  P = { i, L, notes, beat: 60 / L.bpm, start: now() + .4, nextHalf: 0, totalHalf: (LEAD + L.bars * 4) * 2,
+    endTime: notes[notes.length - 1].t + 1.5, phase: 'play', score: 0, combo: 0, maxCombo: 0, hits: 0, perfects: 0, misses: 0,
+    lav0: lav, parts: [], pops: [], balls: [], hero: 0, rival: 0, ri: 0, flash: [0, 0, 0], pressed: [0, 0, 0], jump: 0, light: 0, doneAt: 0 };
+}
+function schedule() {
+  if (!actx) return; const L = P.L, half = P.beat / 2;
+  while (P.nextHalf < P.totalHalf && P.start + P.nextHalf * half < actx.currentTime + .15) {
+    const i = P.nextHalf, at = P.start + i * half, beat = i >> 1, bar = beat >> 2;
+    if (i % 2 === 0) { tone(at, 150, .14, 'sine', .45, 40); tone(at, L.bass[bar % 4] * (beat % 2 ? 2 : 1), P.beat * .8, 'triangle', .22); if (beat % 4 === 2) noise(at, .12, .12, 1500, 'bandpass'); }
+    noise(at, .03, i % 2 ? .03 : .05, 7000);
+    if (i < LEAD * 2 && i % 2 === 0) tone(at, beat === LEAD - 1 ? 1320 : 880, .06, 'square', .05);
+    P.nextHalf++;
+  }
+}
+function press(lane) {
+  if (!P || scene !== 'play') return;
+  P.pressed[lane] = .12; P.flash[lane] = 1;
+  if (P.phase !== 'play') return;
+  const st = now() - P.start; let best = null, bd = 9;
+  for (const n of P.notes) if (!n.judged && (P.i === 0 || n.lane === lane)) { const d = Math.abs(n.t - st); if (d < bd) { bd = d; best = n; } }
+  if (!best || bd > .15) { tone(now(), 200, .04, 'square', .02); return; }
+  best.judged = true; best.hit = true;
+  const perfect = bd <= .07;
+  if (P.i === 0) { // 2K tarzı şut metresi: yeşil = tam zamanında
+    P.meter = { h: meterFill(best.t - st), col: perfect ? '#3cff6e' : '#ffd23f', life: .45 };
+    if (!perfect) { P.hits++; P.combo++; P.maxCombo = Math.max(P.maxCombo, P.combo); P.score += 50 * (1 + Math.min(P.combo, 30) / 30); addLav(.3);
+      pop(best.t > st ? 'ERKEN' : 'GEÇ', 40, PANEL - 170, '#ffd23f'); onHit(lane, false); return; }
+    P.hits++; P.perfects++; P.combo++; P.maxCombo = Math.max(P.maxCombo, P.combo); P.score += 100 * (1 + Math.min(P.combo, 30) / 30); addLav(.6);
+    pop('YEŞİL!', 40, PANEL - 170, '#3cff6e'); onHit(lane, true); return;
+  }
+  P.hits++; if (perfect) P.perfects++; P.combo++; P.maxCombo = Math.max(P.maxCombo, P.combo);
+  P.score += (perfect ? 100 : 50) * (1 + Math.min(P.combo, 30) / 30);
+  addLav(perfect ? .6 : .3);
+  pop(perfect ? 'SÜPER!' : 'İYİ', LANE_X[lane], HITY - 22, perfect ? '#ffd23f' : '#fff');
+  onHit(lane, perfect);
+}
+function onMiss() {
+  P.combo = 0; P.misses++;
+  tone(now(), 110, .15, 'square', .05, 70);
+  if (P.i === 0) { P.balls.push({ t0: sceneT, miss: true }); P.meter = { h: 80, col: '#ff4d6d', life: .45 }; }
+}
+function onHit(lane, perfect) {
+  const t = now();
+  if (P.i === 0) { P.balls.push({ t0: sceneT, miss: false, perfect }); P.jump = .35; tone(t, 90, .12, 'sine', .4, 60); }
+  if (P.i === 1) {
+    P.hero += perfect ? 1 : .6; noise(t, .35, .18, 900, 'lowpass');
+    puff(40, SCN1 - 6 - 86 + 26, 1, perfect ? 7 : 4, perfect);
+  }
+  if (P.i === 2) {
+    const sc = [329.6, 392, 440, 493.9, 587.3], f = sc[(lane * 2 + P.combo) % 5] * (perfect ? 1 : .5) * (P.combo > 20 ? 2 : 1);
+    tone(t, f, .35, 'sawtooth', .07); tone(t, f * 1.005, .3, 'square', .04);
+    P.light = 1; P.parts.push({ kind: 'note', x: 90 + (lane - 1) * 20, y: SCN1 - 60, vx: (lane - 1) * 10, vy: -30, life: 1.2, max: 1.2, col: LANE_COL[lane] });
+  }
+}
+// şut metresi doluluğu (0..80px); 72px = notanın tam vakti, yeşil bölge ±0.07s
+const meterFill = dt => Math.max(0, Math.min(80, 72 * (1 - dt / TRAVEL)));
+function drawMeter(x, y1, st, k = 1) {
+  const M = 80 * k, w = 6 * k, hit = 72 * k, zone = .07 / TRAVEL * hit;
+  rect(x - 1, y1 - M - 1, w + 2, M + 2, '#000'); rect(x, y1 - M, w, M, '#2a2a3a');
+  let h, col;
+  if (P.meter && P.meter.life > 0) { h = P.meter.h; col = P.meter.col; }
+  else { const n = P.notes.find(n => !n.judged); h = n ? meterFill(n.t - st) : 0; col = '#f4efe6'; }
+  rect(x, y1 - h * k, w, h * k, col);
+  rect(x - 2, y1 - hit - zone, w + 4, zone * 2, 'rgba(60,255,110,.55)'); rect(x - 2, y1 - hit, w + 4, 1, '#3cff6e');
+}
+function drawSitting(cx, seat, sc = 2) { // bar taburesinde oturan Çağrı
+  const img = sprite('hero'), x = Math.round(cx - 8 * sc), y = Math.round(seat - 29 * sc);
+  rect(cx - 12, seat + 3, 3, 30, '#3a2a20'); rect(cx + 9, seat + 3, 3, 30, '#3a2a20'); rect(cx - 12, seat + 18, 24, 2, '#3a2a20');
+  rect(cx - 15, seat - 2, 30, 5, '#6a4430'); rect(cx - 15, seat - 2, 30, 1, '#9a6a48');
+  g.imageSmoothingEnabled = false; g.drawImage(img, 0, 0, 16, 29, x, y, 16 * sc, 29 * sc);
+  rect(x + 3 * sc, seat, 10 * sc, 3 * sc, '#1a1020'); rect(x + 4 * sc, seat, 8 * sc, 2 * sc, PAL.J);
+  for (const lx of [3, 9]) { rect(x + lx * sc, seat + 2 * sc, 4 * sc, 7 * sc, '#1a1020'); rect(x + (lx + 1) * sc, seat + 2 * sc, 2 * sc, 7 * sc, PAL.J);
+    rect(x + lx * sc - 2, seat + 9 * sc - 2, 4 * sc + 2, 2 * sc, '#ececec'); }
+  return y;
+}
+function puff(x, y, dir, n, ring) {
+  for (let k = 0; k < n; k++) P.parts.push({ kind: 'smoke', x: x + dir * 4, y, vx: dir * (10 + Math.random() * 25), vy: -6 - Math.random() * 14, r: 2 + Math.random() * 2, grow: 5 + Math.random() * 5, life: 2.2, max: 2.2 });
+  if (ring) P.parts.push({ kind: 'ring', x: x + dir * 8, y, vx: dir * 22, vy: -10, r: 2, grow: 8, life: 1.6, max: 1.6 });
+}
+function pop(text, x, y, col) { P.pops.push({ text, x, y, col, life: .6 }); }
+function finish() {
+  P.phase = 'done'; P.doneAt = sceneT; scores[P.i] = Math.round(P.score);
+  const acc = P.hits / P.notes.length;
+  P.acc = acc; P.grade = acc >= .95 ? 'S' : acc >= .85 ? 'A' : acc >= .7 ? 'B' : acc >= .5 ? 'C' : 'D';
+  tone(now(), 523, .12, 'square', .06); tone(now() + .12, 784, .25, 'square', .06);
+}
+
+// ======= GİRDİ =======
+function tap(x, y) {
+  if (scene === 'title') { blip(); go(0); return; }
+  if (scene === 'story') {
+    const full = story.s.lines[story.line].length;
+    if (story.chars < full) story.chars = full;
+    else { blip(520); story.line++; story.chars = 0; if (story.line >= story.s.lines.length) go(step + 1); }
+    return;
+  }
+  if (scene === 'play') {
+    if (P.phase === 'done') {
+      if (sceneT - P.doneAt < .6) return;
+      if (y >= 206 && y <= 236) { blip(); if (x < 90) { lav = P.lav0; startLevel(P.i); } else go(step + 1); }
+      return;
+    }
+    if (P.i === 0) press(1); // 1. bölüm: ekranın her yeri şut tuşu
+    else if (y >= LANE_TOP) press(x < 63 ? 0 : x < 117 ? 1 : 2);
+    return;
+  }
+  if (scene === 'end' && sceneT > 1.5) { blip(); lav = 0; scores = [0, 0, 0]; scene = 'title'; sceneT = 0; }
+}
+cv.addEventListener('pointerdown', e => {
+  e.preventDefault(); initAudio(); cv.focus();
+  const r = cv.getBoundingClientRect(); tap((e.clientX - r.left) / r.width * W, (e.clientY - r.top) / r.height * H);
+});
+const KEYS = { a: 0, s: 1, d: 2, j: 0, k: 1, l: 2, ArrowLeft: 0, ArrowDown: 1, ArrowRight: 2, '1': 0, '2': 1, '3': 2 };
+addEventListener('keydown', e => {
+  if (e.repeat) return; initAudio();
+  const lane = KEYS[e.key.length === 1 ? e.key.toLowerCase() : e.key];
+  if (scene === 'play' && P.phase === 'play') { if (lane !== undefined || (P.i === 0 && e.key === ' ')) { e.preventDefault(); press(P.i === 0 ? 1 : lane); } return; }
+  if (scene === 'play' && P.phase === 'done') { if (e.key === 'r') tap(40, 220); else if (e.key === 'Enter' || e.key === ' ') tap(130, 220); return; }
+  if (e.key === 'Enter' || e.key === ' ' || lane !== undefined) { e.preventDefault(); tap(90, 100); }
+});
+
+// ======= ARKA PLANLAR =======
+function sky(y0, y1, top, bot) { const gr = g.createLinearGradient(0, y0, 0, y1); gr.addColorStop(0, top); gr.addColorStop(1, bot); g.fillStyle = gr; g.fillRect(0, y0, W, y1 - y0); }
+function stars(y0, y1, t, n = 40) { const r = rng(9); for (let i = 0; i < n; i++) { const x = r() * W, y = y0 + r() * (y1 - y0), tw = Math.sin(t * 2 + i) > .6; rect(x, y, 1, 1, tw ? '#fff' : '#8a7ab8'); } }
+function skyline(y, t, col = '#1c1033', win = '#ffd27a') {
+  const r = rng(4); let x = 0;
+  while (x < W) { const w = 14 + r() * 16 | 0, h = 22 + r() * 40 | 0; rect(x, y - h, w, h, col);
+    for (let wy = y - h + 4; wy < y - 4; wy += 6) for (let wx = x + 3; wx < x + w - 3; wx += 5) if (r() < .35) rect(wx, wy, 2, 2, win);
+    x += w + 1; }
+}
+function drawBg(name, y0, y1, t, pulse = 0) {
+  if (name === 'room') {
+    rect(0, y0, W, y1 - y0, '#2b1d4a');
+    rect(0, y0, W, 2, '#ff4fd8'); rect(0, y0 + 2, W, 3, 'rgba(255,79,216,.25)');
+    rect(12, y0 + 22, 46, 40, '#3a2a5e'); rect(14, y0 + 24, 42, 36, '#132a5a'); stars(y0 + 24, y0 + 60, t, 8); circ(46, y0 + 34, 5, '#f4efc6');
+    rect(34, y0 + 24, 2, 36, '#3a2a5e'); rect(14, y0 + 41, 42, 2, '#3a2a5e');
+    rect(120, y0 + 20, 32, 40, '#f4efe6'); rect(122, y0 + 22, 28, 22, '#c8202f'); rect(132, y0 + 28, 8, 8, '#f4efe6'); rect(134, y0 + 30, 4, 4, '#c8202f');
+    const dy = y1 - 46; rect(92, dy, 84, 4, '#6a4430'); rect(96, dy + 4, 3, 40, '#4a2e20'); rect(170, dy + 4, 3, 40, '#4a2e20');
+    rect(108, dy - 34, 56, 32, '#111'); rect(110, dy - 32, 52, 28, '#2f6cff'); rect(132, dy - 2, 8, 2, '#111');
+    txt('CANLI', 136, dy - 22, '#fff', 'center', 8, null);
+    if (Math.sin(t * 5) > 0) circ(116, dy - 27, 2, '#ff3b3b');
+    rect(0, y1 - 14, W, 14, '#1e1433'); rect(30, y1 - 8, 70, 4, '#4b2d6e');
+    return;
+  }
+  if (name === 'court') {
+    sky(y0, y1, '#4a2a7a', '#ff8c5a'); circ(126, y1 - 52, 16, '#ffd27a'); skyline(y1 - 30, t, '#2a1840', '#ffb36b');
+    g.strokeStyle = 'rgba(30,18,44,.55)'; g.lineWidth = 1; g.beginPath();
+    for (let x = -40; x < W + 40; x += 6) { g.moveTo(x, y1 - 50); g.lineTo(x + 32, y1 - 18); g.moveTo(x + 32, y1 - 50); g.lineTo(x, y1 - 18); }
+    g.stroke(); rect(0, y1 - 51, W, 2, '#3a2a50');
+    rect(0, y1 - 18, W, 18, '#3d3d52'); rect(0, y1 - 14, W, 1, '#d8d8e0');
+    rect(158, y1 - 112, 3, 94, '#77778a'); rect(140, y1 - 122, 24, 20, '#f4efe6'); g.strokeStyle = '#c8202f'; g.strokeRect(140.5, y1 - 121.5, 23, 19); g.strokeRect(146.5, y1 - 114.5, 10, 8);
+    const wob = P && P.net ? Math.sin(P.net * 30) * P.net * 2 : 0;
+    rect(134, y1 - 104, 16, 2, '#ff7a1a');
+    for (let k = 0; k < 4; k++) { g.strokeStyle = '#eee'; g.beginPath(); g.moveTo(135 + k * 4.5, y1 - 102); g.lineTo(137 + k * 3 + wob, y1 - 92); g.stroke(); }
+    return;
+  }
+  if (name === 'cafe') {
+    rect(0, y0, W, y1 - y0, '#3a1f2b');
+    for (let y = y0; y < y1 - 16; y += 6) for (let x = ((y / 6) % 2) * 8 - 8; x < W; x += 16) rect(x, y, 15, 5, '#47262f');
+    g.strokeStyle = '#222'; g.beginPath(); g.moveTo(0, y0 + 10); g.quadraticCurveTo(90, y0 + 30, 180, y0 + 10); g.stroke();
+    for (let i = 0; i < 9; i++) { const x = 10 + i * 20, y = y0 + 10 + Math.sin(i / 8 * Math.PI) * 10; circ(x, y + 2, 2, ['#ff4d6d', '#ffd23f', '#3fa7ff'][i % 3] + (Math.sin(t * 3 + i) > 0 ? '' : '88')); }
+    txt('ROBIN HOOD', 90, y0 + 30, Math.sin(t * 7) > -.8 ? '#ff6ad5' : '#5a2a4a', 'center', 8, '#2a0a20');
+    rect(0, y1 - 16, W, 16, '#20141c'); rect(0, y1 - 16, W, 1, '#5a3a40');
+    return;
+  }
+  if (name === 'stage') {
+    rect(0, y0, W, y1 - y0, '#0b0614');
+    for (let y = y0 + 6; y < y1 - 44; y += 7) for (let x = 6; x < W; x += 7) {
+      const h = (x * 2 + y * 3 + t * 90) % 360; rect(x, y, 3, 3, `hsla(${h},85%,${35 + pulse * 25}%,${.25 + pulse * .2})`);
+    }
+    const a = .07 + (P ? P.light : 0) * .22;
+    g.fillStyle = `rgba(255,236,170,${a})`;
+    g.beginPath(); g.moveTo(24, y0); g.lineTo(34, y0); g.lineTo(110, y1 - 30); g.lineTo(66, y1 - 30); g.fill();
+    g.beginPath(); g.moveTo(146, y0); g.lineTo(156, y0); g.lineTo(114, y1 - 30); g.lineTo(70, y1 - 30); g.fill();
+    for (const sx of [2, 156]) { rect(sx, y1 - 66, 22, 36, '#1a1426'); circ(sx + 11, y1 - 56, 6, '#2e2640'); circ(sx + 11, y1 - 40, 8, '#2e2640'); circ(sx + 11, y1 - 40, 3 + pulse, '#0b0614'); }
+    rect(0, y1 - 30, W, 12, '#2b2238'); rect(0, y1 - 30, W, 1, '#ffd23f');
+    return;
+  }
+}
+function drawHookah(x, ground, mouthX, mouthY) {
+  rect(x - 7, ground - 12, 14, 12, '#3a7bd5'); rect(x - 5, ground - 14, 10, 2, '#5a9be5'); rect(x - 6, ground - 10, 3, 6, '#9fd0ff');
+  rect(x - 1, ground - 38, 2, 24, '#d4a83a'); rect(x - 6, ground - 26, 12, 2, '#d4a83a');
+  rect(x - 4, ground - 44, 8, 6, '#8a3a2a'); rect(x - 3, ground - 46, 6, 2, '#ff7a1a');
+  g.strokeStyle = '#3a2a40'; g.lineWidth = 2; g.beginPath(); g.moveTo(x, ground - 20); g.quadraticCurveTo((x + mouthX) / 2, ground + 4, mouthX, mouthY); g.stroke(); g.lineWidth = 1;
+}
+function drawGuitar(cx, top) {
+  g.save(); g.translate(cx + 4, top + 52); g.rotate(-.45);
+  rect(-30, -2, 34, 4, '#6a4430'); rect(-36, -3, 7, 6, '#1a1020');
+  for (let k = 0; k < 3; k++) rect(-36, -2 + k * 2, 2, 1, '#ddd');
+  g.restore();
+  rect(cx - 6, top + 50, 20, 16, '#d62d4a'); rect(cx - 2, top + 46, 14, 4, '#d62d4a'); rect(cx - 2, top + 66, 14, 3, '#d62d4a');
+  rect(cx + 1, top + 56, 8, 3, '#1a1020'); rect(cx - 6, top + 50, 2, 16, '#a81e38');
+}
+
+// ======= ÇİZİM =======
+function hud() {
+  rect(0, 0, W, SCN0, '#0d0716');
+  txt('LAVUKLUK', 3, 3, '#ff6ad5'); rect(69, 4, 62, 7, '#000'); rect(70, 5, 60 * lav / 100, 5, '#ff6ad5'); rect(70, 5, 60 * lav / 100, 1, '#ffc2ee');
+  if (scene === 'play') txt(String(Math.round(P.score)), W - 3, 3, '#ffd23f', 'right');
+}
+function drawLanes(st) {
+  rect(0, LANE_TOP, W, PANEL - LANE_TOP, '#120a1f');
+  g.save(); g.beginPath(); g.rect(0, LANE_TOP, W, PANEL - LANE_TOP); g.clip();
+  LANE_X.forEach((x, i) => {
+    rect(x - 23, LANE_TOP, 46, PANEL - LANE_TOP, '#1b1130'); rect(x, LANE_TOP, 1, PANEL - LANE_TOP, '#2a1c44');
+    if (P.flash[i] > 0) { const gr = g.createLinearGradient(0, HITY, 0, LANE_TOP); gr.addColorStop(0, LANE_COL[i] + '66'); gr.addColorStop(1, LANE_COL[i] + '00'); g.fillStyle = gr; g.globalAlpha = P.flash[i]; g.fillRect(x - 23, LANE_TOP, 46, HITY - LANE_TOP); g.globalAlpha = 1; }
+    g.strokeStyle = LANE_COL[i]; g.globalAlpha = .7; g.strokeRect(x - 13.5, HITY - 5.5, 27, 11); g.globalAlpha = 1;
+  });
+  rect(0, HITY, W, 1, 'rgba(255,255,255,.25)');
+  for (const n of P.notes) {
+    if (n.judged) continue;
+    const y = HITY - (n.t - st) * SPEED; if (y < LANE_TOP - 6 || y > PANEL + 6) continue;
+    const x = LANE_X[n.lane];
+    rect(x - 12, y - 5, 24, 10, '#000'); rect(x - 11, y - 4, 22, 8, LANE_COL[n.lane]); rect(x - 11, y - 4, 22, 2, 'rgba(255,255,255,.6)'); rect(x - 11, y + 2, 22, 2, LANE_DARK[n.lane]);
+  }
+  g.restore();
+}
+function drawButtons() {
+  rect(0, PANEL, W, H - PANEL, '#2a1840'); rect(0, PANEL, W, 2, '#ff4d6d'); rect(0, H - 4, W, 4, '#1a0f2a');
+  for (let k = 0; k < 6; k++) rect(4 + k * 3, PANEL + 6, 1, 1, '#4a3a60');
+  if (P.i === 0) { // tek büyük şut tuşu
+    const p = P.pressed[1] > 0 ? 3 : 0;
+    circ(90, BTN_Y + 2, 20, '#0a0612'); circ(90, BTN_Y, 18, '#3a2a50'); circ(90, BTN_Y + 3, 14, '#1a8a3a'); circ(90, BTN_Y - 1 + p, 14, '#3cff6e');
+    txt('ŞUT', 90, BTN_Y - 4 + p, '#0a2a12', 'center', 8, null); return;
+  }
+  LANE_X.forEach((x, i) => {
+    const p = P && P.pressed[i] > 0 ? 3 : 0;
+    circ(x, BTN_Y + 2, 18, '#0a0612'); circ(x, BTN_Y, 16, '#3a2a50');
+    circ(x, BTN_Y + 3, 12, LANE_DARK[i]); circ(x, BTN_Y - 1 + p, 12, p ? '#fff' : LANE_COL[i]);
+    if (p) circ(x, BTN_Y - 1 + p, 10, LANE_COL[i]);
+    g.fillStyle = 'rgba(255,255,255,.55)'; g.beginPath(); g.ellipse(x - 4, BTN_Y - 6 + p, 4, 2, -.5, 0, 7); g.fill();
+  });
+}
+function renderTitle(t) {
+  sky(0, H, '#140a2e', '#7a2e6e'); stars(0, 200, t, 60); circ(140, 60, 14, '#f4efc6'); circ(146, 56, 12, '#2a1450');
+  skyline(250, t); rect(0, 250, W, 70, '#120a20'); rect(0, 250, W, 1, '#ff4fd8');
+  const bob = Math.sin(t * 2) > 0 ? 0 : 1;
+  const top = drawChar('hero', 90, 248 + bob, 2); scarfFlutter(90 - 16, top, 2, t);
+  const sz = Math.min(16, Math.floor(168 / NAME.length));
+  txt(NAME, 92, 26, '#ff4d6d', 'center', sz, '#3a0a20'); txt(NAME, 90, 24, '#ffd23f', 'center', sz, null);
+  txt('SİMÜLATÖR', 90, 26 + sz + 6, '#fff', 'center');
+  rect(30, 40 + sz + 6, 120, 12, '#c8202f'); txt('DOĞUM GÜNÜ EDİSYONU', 90, 42 + sz + 6, '#fff', 'center', 6, null);
+  if (Math.floor(t * 2) % 2 === 0) txt('PRESS START', 90, 270, '#fff', 'center');
+  txt('ekrana dokun', 90, 286, '#b8a8d8', 'center', 6, null);
+}
+function renderStory(t) {
+  const s = story.s; drawBg(s.bg, 0, 236, t, (Math.sin(t * 4) + 1) / 2);
+  if (s.rival) { drawChar('hero', 40, 230); drawChar('rival', 140, 230); }
+  else if (s.bg === 'stage') drawGuitar(90, drawSitting(90, 181));
+  else drawChar('hero', s.bg === 'room' ? 50 : 40, 230);
+  if (s.bg === 'stage') for (let i = 0; i < 15; i++) circ(i * 13 + 4, 232 + Math.sin(t * 6 + i) * 2, 6, '#1a0f2a');
+  if (s.title) { rect(0, 16, W, 40, 'rgba(10,4,20,.75)'); txt(s.title, 90, 22, '#ffd23f', 'center', 16); txt(s.sub, 90, 42, '#fff', 'center'); }
+  rect(4, 238, W - 8, 78, '#f4efe6'); rect(6, 240, W - 12, 74, '#120a20');
+  const lines = wrapText(s.lines[story.line], W - 24); let left = Math.floor(story.chars), y = 248;
+  for (const l of lines) { if (left <= 0) break; txt(l.slice(0, left), 12, y, '#fff', 'left', 8, null); left -= l.length + 1; y += 12; }
+  if (story.chars >= s.lines[story.line].length && Math.floor(t * 3) % 2 === 0) { g.fillStyle = '#ffd23f'; g.beginPath(); g.moveTo(162, 302); g.lineTo(170, 302); g.lineTo(166, 307); g.fill(); }
+  txt(`${story.line + 1}/${s.lines.length}`, 12, 302, '#6a5a8a', 'left', 6, null);
+}
+function renderPlay(t) {
+  const st = now() - P.start, pulse = Math.max(0, 1 - ((st / P.beat) % 1 + 1) % 1 * 2);
+  const Y1 = P.i === 0 ? PANEL : SCN1; // 1. bölümde şerit alanı yok, saha aşağı uzar
+  g.save(); g.beginPath(); g.rect(0, SCN0, W, Y1 - SCN0); g.clip();
+  drawBg(P.L.bg, SCN0, Y1, t, pulse);
+  if (P.i === 0) {
+    const jy = P.jump > 0 ? Math.sin(P.jump / .35 * Math.PI) * 8 : 0;
+    const top = drawChar('hero', 40, Y1 - 6 - jy); scarfFlutter(24, top, 2, t);
+    drawMeter(6, Y1 - 24, st, 1.6);
+    for (const b of P.balls) {
+      const u = (sceneT - b.t0) / .55, sx = 54, sy = Y1 - 70, tx = 142, ty = Y1 - 106;
+      let x, y;
+      if (u <= 1) { x = sx + (tx - sx) * u; y = sy + (ty - sy) * u - Math.sin(u * Math.PI) * 40; }
+      else if (!b.miss) { const v = u - 1; x = tx; y = ty + v * 120; if (!b.scored) { b.scored = true; P.net = .5; pop(b.perfect ? '+3' : '+2', 142, Y1 - 130, '#ffd23f'); } }
+      else { const v = u - 1; x = tx - 4 - v * 70; y = ty - Math.sin(Math.min(v * 3, Math.PI)) * 16 + Math.max(0, v - .33) * 140; }
+      if (u < 2.2) { circ(x, y, 4, '#ff7a1a'); rect(x - 4, y, 8, 1, '#7a2a00'); rect(x, y - 4, 1, 8, '#7a2a00'); }
+    }
+    P.balls = P.balls.filter(b => sceneT - b.t0 < 1.3);
+  }
+  if (P.i === 1) {
+    drawChar('hero', 40, SCN1 - 6); drawChar('rival', 140, SCN1 - 6);
+    drawHookah(72, SCN1 - 8, 44, SCN1 - 66); drawHookah(108, SCN1 - 8, 136, SCN1 - 66);
+    const max = P.notes.length * .9;
+    rect(6, SCN0 + 4, 76, 6, '#000'); rect(7, SCN0 + 5, Math.min(74, 74 * P.hero / max), 4, '#3fa7ff');
+    rect(98, SCN0 + 4, 76, 6, '#000'); rect(173 - Math.min(74, 74 * P.rival / max), SCN0 + 5, Math.min(74, 74 * P.rival / max), 4, '#ff4d6d');
+    txt(NAME, 6, SCN0 + 13, '#3fa7ff', 'left', 6); txt('BABA', 174, SCN0 + 13, '#ff4d6d', 'right', 6);
+  }
+  if (P.i === 2) {
+    const top = drawSitting(90, SCN1 - 55); drawGuitar(90, top);
+    const amp = 1 + Math.min(6, P.combo / 4);
+    for (let i = 0; i < 15; i++) { const x = i * 13 + 4, y = SCN1 - 4 - Math.abs(Math.sin(st * Math.PI / P.beat + i)) * amp;
+      circ(x, y, 6, '#1a0f2a'); if (i % 4 === 1 && P.combo > 8) { rect(x + 4, y - 14, 2, 10, '#1a0f2a'); rect(x + 4, y - 16, 2, 2, '#fff'); } }
+  }
+  for (const p of P.parts) {
+    const a = Math.max(0, p.life / p.max);
+    if (p.kind === 'smoke') { g.globalAlpha = a * .7; circ(p.x, p.y, p.r, '#ddd8ea'); g.globalAlpha = 1; }
+    if (p.kind === 'ring') { g.globalAlpha = a; g.strokeStyle = '#fff'; g.lineWidth = 2; g.beginPath(); g.ellipse(p.x, p.y, p.r, p.r * .6, 0, 0, 7); g.stroke(); g.lineWidth = 1; g.globalAlpha = 1; }
+    if (p.kind === 'note') { g.globalAlpha = a; circ(p.x, p.y, 3, p.col); rect(p.x + 2, p.y - 9, 1, 9, p.col); rect(p.x + 2, p.y - 9, 4, 2, p.col); g.globalAlpha = 1; }
+  }
+  if (P.i === 2) drawLyrics(st);
+  if (P.combo >= 5) txt(P.combo + ' KOMBO', W - 4, SCN0 + (P.i === 1 ? 22 : 4), '#fff', 'right');
+  if (st < LEAD * P.beat) txt(st < 0 ? 'HAZIR?' : String(LEAD - Math.floor(st / P.beat)), 90, 70, '#ffd23f', 'center', 16);
+  else if (st < LEAD * P.beat + .6) txt('BAŞLA!', 90, 70, '#ffd23f', 'center', 16);
+  g.restore();
+
+  if (P.i !== 0) drawLanes(st);
+  for (const p of P.pops) { g.globalAlpha = Math.min(1, p.life * 3); txt(p.text, p.x, p.y - (.6 - p.life) * 20, p.col, 'center'); g.globalAlpha = 1; }
+  drawButtons(); hud();
+  if (P.phase === 'done') renderResult();
+}
+function drawLyrics(st) { // sol üstte, yukarıdan inen pixel söz kutusu
+  let i = -1; for (let k = 0; k < LYRICS.length; k++) if (LYRICS[k].t <= st) i = k;
+  if (i < 0) return;
+  const age = st - LYRICS[i].t, drop = Math.max(0, 1 - age / .3) * 10, lines = wrapText(LYRICS[i].s, 96), h = 8 + lines.length * 10;
+  rect(3, SCN0 + 3, 104, h + 2, '#000'); rect(4, SCN0 + 4, 102, h, '#1a0f2e'); rect(4, SCN0 + 4, 2, h, '#ff6ad5');
+  g.globalAlpha = Math.min(1, age / .3);
+  lines.forEach((l, k) => txt(l, 10, SCN0 + 8 + k * 10 - drop, i === 0 ? '#ffd23f' : '#fff', 'left', 8, null));
+  g.globalAlpha = 1;
+}
+function renderResult() {
+  rect(0, 0, W, H, 'rgba(8,4,16,.86)');
+  rect(10, 40, 160, 206, '#ffd23f'); rect(12, 42, 156, 202, '#1a0f2e');
+  txt('BÖLÜM ' + (P.i + 1), 90, 52, '#ffd23f', 'center'); txt(P.L.name, 90, 66, '#fff', 'center');
+  const gc = { S: '#ffd23f', A: '#3fa7ff', B: '#7ee08a', C: '#fff', D: '#ff4d6d' }[P.grade];
+  txt(P.grade, 90, 86, gc, 'center', 32, '#000');
+  let y = 128;
+  if (P.i === 1) { const win = P.hero > P.rival; txt(win ? 'BABAYI YENDİN!' : 'BABA KAZANDI...', 90, y, win ? '#7ee08a' : '#ff4d6d', 'center'); y += 14; }
+  txt('İSABET  %' + Math.round(P.acc * 100), 24, y, '#fff'); y += 12;
+  txt('KOMBO   ' + P.maxCombo, 24, y, '#fff'); y += 12;
+  txt('LAVUKLUK +%' + Math.round(lav - P.lav0), 24, y, '#ff6ad5');
+  rect(20, 208, 66, 26, '#3a2a50'); txt('TEKRAR', 53, 217, '#fff', 'center');
+  rect(94, 208, 66, 26, '#c8202f'); txt(P.i === 2 ? 'FİNAL' : 'DEVAM', 127, 217, '#fff', 'center');
+}
+function renderEnd(t) {
+  drawBg('room', 0, H, t);
+  const top = drawChar('hero', 44, H - 6); scarfFlutter(28, top, 2, t);
+  const cx = 124, base = H - 20;
+  rect(cx - 30, base - 18, 60, 18, '#f4b6c8'); rect(cx - 30, base - 18, 60, 4, '#fff');
+  rect(cx - 22, base - 34, 44, 16, '#f48aa8'); rect(cx - 22, base - 34, 44, 3, '#fff');
+  for (let k = 0; k < 5; k++) { const x = cx - 16 + k * 8; rect(x, base - 42, 2, 8, ['#3fa7ff', '#ffd23f', '#7ee08a'][k % 3]); rect(x, base - 46 + (Math.sin(t * 12 + k) > 0 ? 0 : 1), 2, 3, '#ffb020'); }
+  rect(cx - 36, base, 72, 3, '#ddd');
+  if (confetti.length < 60) confetti.push({ x: Math.random() * W, y: -4, v: 20 + Math.random() * 30, c: LANE_COL[Math.random() * 3 | 0], w: Math.random() * 6 });
+  for (const c of confetti) { rect(c.x + Math.sin(t * 3 + c.w) * 3, c.y, 2, 3, c.c); }
+  rect(0, 16, W, 76, 'rgba(10,4,20,.8)');
+  txt('İYİ Kİ', 90, 22, '#ffd23f', 'center', 16); txt('DOĞDUN', 90, 42, '#ffd23f', 'center', 16);
+  txt(NAME + '!', 90, 64, '#fff', 'center');
+  rect(10, 98, 160, 92, '#ff6ad5'); rect(12, 100, 156, 88, '#1a0f2e');
+  txt('LAVUKLUK PUANI', 90, 106, '#ff6ad5', 'center');
+  txt(fmt(total), 90, 120, '#ffd23f', 'center', 16, '#000');
+  txt(rankName(lav), 90, 142, '#fff', 'center');
+  txt('BAR %' + Math.round(lav), 90, 156, '#b8a8d8', 'center', 6, null);
+  txt(newBest ? 'YENİ REKOR!' : 'REKOR ' + fmt(best), 90, 170, newBest ? '#7ee08a' : '#b8a8d8', 'center', 6, null);
+  if (sceneT > 1.5 && Math.floor(t * 2) % 2 === 0) txt('TEKRAR OYNA', 90, 198, '#fff', 'center');
+}
+
+// ======= DÖNGÜ =======
+let last = performance.now() / 1000;
+function update(dt) {
+  sceneT += dt;
+  if (scene === 'story') story.chars += dt * 40;
+  if (scene === 'end') for (const c of confetti) { c.y += c.v * dt; if (c.y > H) { c.y = -4; c.x = Math.random() * W; } }
+  if (scene !== 'play') return;
+  schedule();
+  const st = now() - P.start;
+  if (P.phase === 'play') {
+    for (const n of P.notes) if (!n.judged && st - n.t > .15) { n.judged = true; onMiss(); P.i === 0 ? pop('KAÇTI', 40, PANEL - 170, '#ff4d6d') : pop('KAÇTI', LANE_X[n.lane], HITY - 22, '#8a7ab8'); }
+    if (P.i === 1) while (P.ri < P.notes.length && P.notes[P.ri].t < st) { P.rival += .66; if (P.ri % 2 === 0) puff(140, SCN1 - 6 - 86 + 26, -1, 4, P.ri % 6 === 0); P.ri++; }
+    if (st > P.endTime) finish();
+  }
+  for (let i = 0; i < 3; i++) { P.flash[i] = Math.max(0, P.flash[i] - dt * 5); P.pressed[i] -= dt; }
+  if (P.meter) P.meter.life -= dt;
+  P.jump = Math.max(0, P.jump - dt); P.light = Math.max(0, P.light - dt * 3); if (P.net) P.net = Math.max(0, P.net - dt);
+  for (const p of P.parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= .97; if (p.grow) p.r += p.grow * dt; p.life -= dt; }
+  P.parts = P.parts.filter(p => p.life > 0);
+  for (const p of P.pops) p.life -= dt; P.pops = P.pops.filter(p => p.life > 0);
+}
+function loop() {
+  const t = performance.now() / 1000, dt = Math.min(.05, t - last); last = t;
+  update(dt);
+  g.imageSmoothingEnabled = false; g.clearRect(0, 0, W, H);
+  if (scene === 'title') renderTitle(t);
+  else if (scene === 'story') { renderStory(t); hud(); }
+  else if (scene === 'play') renderPlay(t);
+  else renderEnd(t);
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
