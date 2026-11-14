@@ -129,7 +129,7 @@ const blip = (f = 660) => tone(now(), f, .08, 'square', .06);
 
 // ======= HİKAYE & BÖLÜMLER =======
 const LEVELS = [
-  { name: 'MAHALLE POTASI', bg: 'court', bpm: 100, bars: 12, seed: 3, density: .45, eighths: false, bass: [55, 55, 65.4, 49] },
+  { name: 'MAHALLE POTASI', bg: 'court', bpm: 100, bars: 14, seed: 3, density: .45, eighths: false, shots: true, bass: [55, 55, 65.4, 49] },
   { name: 'DUMAN KRALI', bg: 'cafe', bpm: 112, bars: 14, seed: 7, density: .5, eighths: true, bass: [41.2, 41.2, 49, 55] },
   { name: 'SON ŞARKI', bg: 'stage', bpm: 104, bars: 16, seed: 11, density: .6, eighths: true, bass: [82.4, 98, 110, 73.4] },
 ];
@@ -141,7 +141,7 @@ const STEPS = [
     `Kefiyeyi tak. Hadi başlayalım!`] },
   { t: 'story', bg: 'court', title: 'BÖLÜM 1', sub: 'MAHALLE POTASI', lines: [
     `İlk durak: mahallenin efsane potası.`,
-    `Şut metresi dolarken izle. Tam yeşildeyken ekrana bas, top fileyi sallasın!`,
+    `Her ölçüde bir şut. Metre dolarken izle, tam yeşildeyken bir kez bas!`,
     `Erken ya da geç kalma. Yeşili yakala, ${NM}!`] },
   { t: 'play', lvl: 0 },
   { t: 'story', bg: 'cafe', title: 'BÖLÜM 2', sub: 'DUMAN KRALI', rival: true, lines: [
@@ -156,24 +156,31 @@ const STEPS = [
     `ÇAĞRI: "Son şarkı olarak... Teoman, Paramparça."`,
     `Salon sustu. Telefon ışıkları yandı. ${NM} ilk akoru bastı...`] },
   { t: 'play', lvl: 2 },
+  { t: 'story', bg: 'cafe', title: 'BONUS', sub: 'ŞAH MAT', rival: true, lines: [
+    `Konser bitti ama gece bitmedi. Robin Hood'a dönüş.`,
+    `BABA: "Evlat, bir de satrançta görelim seni."`,
+    `BABA: "Tek hamlede mat edersen puanını ikiye katlarım. 3 hakkın var."`] },
+  { t: 'chess' },
   { t: 'end' },
 ];
 
 let scene = 'title', step = -1, story = null, P = null, lav = 0, sceneT = 0, confetti = [];
-let scores = [0, 0, 0], total = 0, best = 0, newBest = false;
+let scores = [0, 0, 0], total = 0, best = 0, newBest = false, bonus = false, C = null;
 function rankName(l) { return l < 25 ? 'ÇIRAK LAVUK' : l < 50 ? 'MAHALLE LAVUĞU' : l < 75 ? 'PROFESYONEL LAVUK' : 'LAVUKLARIN KRALI'; }
 function go(i) {
   step = i; sceneT = 0; const s = STEPS[i];
   if (!s) { scene = 'title'; return; }
   if (s.t === 'story') { scene = 'story'; story = { s, line: 0, chars: 0 }; }
   else if (s.t === 'play') startLevel(s.lvl);
+  else if (s.t === 'chess') startChess();
   else {
-    scene = 'end'; confetti = []; total = scores.reduce((a, b) => a + b, 0) + Math.round(lav) * 100;
+    scene = 'end'; confetti = []; total = (scores.reduce((a, b) => a + b, 0) + Math.round(lav) * 100) * (bonus ? 2 : 1);
     try { best = +localStorage.getItem('cagri-best') || 0; newBest = total > best; if (newBest) { best = total; localStorage.setItem('cagri-best', total); } } catch (e) { best = total; newBest = false; } tone(now(), 523, .15, 'square', .08); tone(now() + .15, 659, .15, 'square', .08); tone(now() + .3, 784, .4, 'square', .08); }
 }
 
 function makeChart(L) {
   const r = rng(L.seed), b = 60 / L.bpm, out = []; let prev = -1;
+  if (L.shots) { for (let k = 0; k < L.bars; k++) out.push({ t: (LEAD + k * 4) * b, lane: 1, judged: false }); return out; } // her ölçüde bir şut
   for (let s = 0; s < L.bars * 8; s++) {
     const p = s % 2 === 0 ? L.density + .25 : (L.eighths ? L.density * .6 : 0);
     if (r() < p) {
@@ -207,21 +214,26 @@ function press(lane) {
   if (P.phase !== 'play') return;
   const st = now() - P.start; let best = null, bd = 9;
   for (const n of P.notes) if (!n.judged && (P.i === 0 || n.lane === lane)) { const d = Math.abs(n.t - st); if (d < bd) { bd = d; best = n; } }
-  if (!best || bd > .15) { tone(now(), 200, .04, 'square', .02); return; }
-  best.judged = true; best.hit = true;
-  const perfect = bd <= .07;
-  if (P.i === 0) { // 2K tarzı şut metresi: yeşil = tam zamanında
-    P.meter = { h: meterFill(best.t - st), col: perfect ? '#3cff6e' : '#ffd23f', life: .45 };
-    if (!perfect) { P.hits++; P.combo++; P.maxCombo = Math.max(P.maxCombo, P.combo); P.score += 50 * (1 + Math.min(P.combo, 30) / 30); addLav(.3);
-      pop(best.t > st ? 'ERKEN' : 'GEÇ', 40, PANEL - 170, '#ffd23f'); onHit(lane, false); return; }
-    P.hits++; P.perfects++; P.combo++; P.maxCombo = Math.max(P.maxCombo, P.combo); P.score += 100 * (1 + Math.min(P.combo, 30) / 30); addLav(.6);
-    pop('YEŞİL!', 40, PANEL - 170, '#3cff6e'); onHit(lane, true); return;
+  if (P.i === 0) { // 2K tarzı şut metresi: metre dolarken tek basış, yeşil = tam zamanında
+    if (!best || best.t - st > FILL) return; // metre dolmuyorken basış boşa gider
+    best.judged = true;
+    const d = best.t - st, ad = Math.abs(d), perfect = ad <= GREEN;
+    if (ad > .2) { onMiss(); P.meter.h = meterFill(d); pop('ÇOK ERKEN', 40, PANEL - 170, '#ff4d6d'); return; }
+    best.hit = true; P.meter = { h: meterFill(d), col: perfect ? '#3cff6e' : '#ffd23f', life: .45 };
+    addScore(perfect ? 100 : 60, perfect ? .6 : .35, perfect);
+    pop(perfect ? 'YEŞİL!' : d > 0 ? 'ERKEN' : 'GEÇ', 40, PANEL - 170, perfect ? '#3cff6e' : '#ffd23f');
+    onHit(lane, perfect); return;
   }
-  P.hits++; if (perfect) P.perfects++; P.combo++; P.maxCombo = Math.max(P.maxCombo, P.combo);
-  P.score += (perfect ? 100 : 50) * (1 + Math.min(P.combo, 30) / 30);
-  addLav(perfect ? .6 : .3);
-  pop(perfect ? 'SÜPER!' : 'İYİ', LANE_X[lane], HITY - 22, perfect ? '#ffd23f' : '#fff');
+  if (!best || bd > .22) { tone(now(), 200, .04, 'square', .02); return; }
+  best.judged = true; best.hit = true;
+  const perfect = bd <= .07, good = bd <= .13; // Muse Dash gibi: geç/erken basış da sayılır, OK yazar
+  addScore(perfect ? 100 : good ? 60 : 30, perfect ? .6 : good ? .35 : .2, perfect);
+  pop(perfect ? 'SÜPER!' : good ? 'İYİ' : 'OK', LANE_X[lane], HITY - 22, perfect ? '#ffd23f' : good ? '#fff' : '#7ee08a');
   onHit(lane, perfect);
+}
+function addScore(pts, lv, perfect) {
+  P.hits++; if (perfect) P.perfects++; P.combo++; P.maxCombo = Math.max(P.maxCombo, P.combo);
+  P.score += pts * (1 + Math.min(P.combo, 30) / 30); addLav(lv);
 }
 function onMiss() {
   P.combo = 0; P.misses++;
@@ -241,10 +253,11 @@ function onHit(lane, perfect) {
     P.light = 1; P.parts.push({ kind: 'note', x: 90 + (lane - 1) * 20, y: SCN1 - 60, vx: (lane - 1) * 10, vy: -30, life: 1.2, max: 1.2, col: LANE_COL[lane] });
   }
 }
-// şut metresi doluluğu (0..80px); 72px = notanın tam vakti, yeşil bölge ±0.07s
-const meterFill = dt => Math.max(0, Math.min(80, 72 * (1 - dt / TRAVEL)));
+// şut metresi: şuttan FILL sn önce dolmaya başlar (0..80px); 72px = tam vakit, yeşil bölge ±GREEN sn
+const FILL = 1.2, GREEN = .09;
+const meterFill = dt => dt > FILL ? 0 : Math.max(0, Math.min(80, 72 * (1 - dt / FILL)));
 function drawMeter(x, y1, st, k = 1) {
-  const M = 80 * k, w = 6 * k, hit = 72 * k, zone = .07 / TRAVEL * hit;
+  const M = 80 * k, w = 6 * k, hit = 72 * k, zone = GREEN / FILL * hit;
   rect(x - 1, y1 - M - 1, w + 2, M + 2, '#000'); rect(x, y1 - M, w, M, '#2a2a3a');
   let h, col;
   if (P.meter && P.meter.life > 0) { h = P.meter.h; col = P.meter.col; }
@@ -293,7 +306,8 @@ function tap(x, y) {
     else if (y >= LANE_TOP) press(x < 63 ? 0 : x < 117 ? 1 : 2);
     return;
   }
-  if (scene === 'end' && sceneT > 1.5) { blip(); lav = 0; scores = [0, 0, 0]; scene = 'title'; sceneT = 0; }
+  if (scene === 'chess') { chessTap(x, y); return; }
+  if (scene === 'end' && sceneT > 1.5) { blip(); lav = 0; scores = [0, 0, 0]; bonus = false; scene = 'title'; sceneT = 0; }
 }
 cv.addEventListener('pointerdown', e => {
   e.preventDefault(); initAudio(); cv.focus();
@@ -535,9 +549,84 @@ function renderEnd(t) {
   txt('LAVUKLUK PUANI', 90, 106, '#ff6ad5', 'center');
   txt(fmt(total), 90, 120, '#ffd23f', 'center', 16, '#000');
   txt(rankName(lav), 90, 142, '#fff', 'center');
-  txt('BAR %' + Math.round(lav), 90, 156, '#b8a8d8', 'center', 6, null);
+  txt('BAR %' + Math.round(lav) + (bonus ? '  BONUS x2' : ''), 90, 156, '#b8a8d8', 'center', 6, null);
   txt(newBest ? 'YENİ REKOR!' : 'REKOR ' + fmt(best), 90, 170, newBest ? '#7ee08a' : '#b8a8d8', 'center', 6, null);
   if (sceneT > 1.5 && Math.floor(t * 2) % 2 === 0) txt('TEKRAR OYNA', 90, 198, '#fff', 'center');
+}
+
+// ======= BONUS: SATRANÇ (tek hamlede mat) =======
+const PIECE = {
+  P: [".........", "....#....", "...###...", "...###...", "....#....", "...###...", "..#####..", ".#######.", ".#######."],
+  N: [".........", "...##....", "..####...", ".##.####.", ".#######.", "....####.", "...####..", "..#####..", ".#######."],
+  B: ["....#....", "...###...", "..##.##..", "..#.###..", "..#####..", "...###...", "....#....", "..#####..", ".#######."],
+  R: [".#.#.#.#.", ".#######.", "..#####..", "..#####..", "..#####..", "..#####..", "..#####..", ".#######.", ".#######."],
+  Q: ["#..#.#..#", "#.#####.#", ".#######.", ".#######.", "..#####..", "..#####..", "...###...", ".#######.", ".#######."],
+  K: ["....#....", "...###...", "....#....", ".##.#.##.", "#########", ".#######.", "..#####..", ".#######.", ".#######."],
+};
+const BX = 10, BY = 74, SQ = 20;
+function startChess() {
+  scene = 'chess'; const B = [];
+  const put = (sq, type, white) => B.push({ f: sq.charCodeAt(0) - 97, r: +sq[1] - 1, type, white });
+  [['g1', 'K'], ['d1', 'Q'], ['c1', 'B'], ['g5', 'N'], ['a2', 'P'], ['b2', 'P'], ['f2', 'P'], ['g2', 'P'], ['h2', 'P']].forEach(([q, t]) => put(q, t, true));
+  [['h8', 'K'], ['g8', 'R'], ['a8', 'R'], ['a5', 'Q'], ['a7', 'P'], ['b7', 'P'], ['g7', 'P'], ['h7', 'P']].forEach(([q, t]) => put(q, t, false));
+  C = { B, sel: null, tries: 3, state: 'play', msg: 'Beyaz oynar. Bir taşa dokun, sonra gideceği kareye.', t: 0 };
+}
+const pieceAt = (f, r) => C.B.find(p => p.f === f && p.r === r);
+function moves(p) { // beyaz taşın kurallara uygun hedefleri (şah güvenliği hariç)
+  const out = [], on = (f, r) => f >= 0 && f < 8 && r >= 0 && r < 8;
+  const add = (f, r) => { if (!on(f, r)) return false; const q = pieceAt(f, r); if (q && q.white) return false; out.push([f, r]); return !q; };
+  const slide = dirs => dirs.forEach(([df, dr]) => { let f = p.f + df, r = p.r + dr; while (add(f, r)) { f += df; r += dr; } });
+  const D = [[1, 1], [1, -1], [-1, 1], [-1, -1]], O = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  if (p.type === 'R') slide(O); if (p.type === 'B') slide(D); if (p.type === 'Q') slide([...O, ...D]);
+  if (p.type === 'K') [...O, ...D].forEach(([df, dr]) => add(p.f + df, p.r + dr));
+  if (p.type === 'N') [[1, 2], [2, 1], [-1, 2], [-2, 1], [1, -2], [2, -1], [-1, -2], [-2, -1]].forEach(([df, dr]) => add(p.f + df, p.r + dr));
+  if (p.type === 'P') {
+    if (!pieceAt(p.f, p.r + 1)) { out.push([p.f, p.r + 1]); if (p.r === 1 && !pieceAt(p.f, p.r + 2)) out.push([p.f, p.r + 2]); }
+    for (const df of [-1, 1]) { const q = pieceAt(p.f + df, p.r + 1); if (q && !q.white) out.push([p.f + df, p.r + 1]); }
+  }
+  return out;
+}
+function chessTap(x, y) {
+  if (C.state !== 'play') { if (C.t > .8) { blip(); go(step + 1); } return; }
+  const f = Math.floor((x - BX) / SQ), r = 7 - Math.floor((y - BY) / SQ);
+  if (f < 0 || f > 7 || r < 0 || r > 7) return;
+  const q = pieceAt(f, r);
+  if (q && q.white) { C.sel = q; blip(700); return; }
+  if (!C.sel || !moves(C.sel).some(([mf, mr]) => mf === f && mr === r)) return;
+  const p = C.sel; C.sel = null;
+  if (p.type === 'N' && f === 5 && r === 6) { // Af7# : boğulmuş mat (şahın kaçacak karesi yok)
+    p.f = f; p.r = r; C.state = 'win'; C.t = 0; bonus = true; C.msg = 'ŞAH MAT! Boğulmuş mat. Puanın 2 katı!';
+    [523, 659, 784, 1047].forEach((n, k) => tone(now() + k * .12, n, .2, 'square', .07));
+  } else {
+    C.tries--; tone(now(), 110, .2, 'square', .06, 70);
+    if (C.tries > 0) C.msg = `Mat değil! ${C.tries} hakkın kaldı.`;
+    else { C.state = 'lose'; C.t = 0; C.msg = 'Haklar bitti. Doğrusu: At f7, boğulmuş mat.'; const n = pieceAt(6, 4); n.f = 5; n.r = 6; }
+  }
+}
+function drawPiece(p, x, y) {
+  const rows = PIECE[p.type], fill = p.white ? '#f4efe6' : '#2a1840', line = p.white ? '#1a1020' : '#e6d8ff';
+  rows.forEach((row, r) => [...row].forEach((ch, c) => { if (ch === '#') rect(x + c * 2 - 1, y + r * 2 - 1, 4, 4, line); }));
+  rows.forEach((row, r) => [...row].forEach((ch, c) => { if (ch === '#') rect(x + c * 2, y + r * 2, 2, 2, fill); }));
+}
+function renderChess(t) {
+  drawBg('cafe', 0, H, t);
+  rect(0, 16, W, 52, 'rgba(10,4,20,.85)');
+  txt('BONUS', 90, 20, '#ffd23f', 'center', 16); txt('ŞAH MAT = PUAN x2', 90, 40, '#fff', 'center');
+  txt('HAK: ' + C.tries, 90, 54, '#ff6ad5', 'center', 6, null);
+  rect(BX - 3, BY - 3, SQ * 8 + 6, SQ * 8 + 6, '#1a1020'); rect(BX - 2, BY - 2, SQ * 8 + 4, SQ * 8 + 4, '#d4a83a');
+  const mv = C.sel ? moves(C.sel) : [];
+  for (let f = 0; f < 8; f++) for (let r = 0; r < 8; r++) {
+    const x = BX + f * SQ, y = BY + (7 - r) * SQ;
+    rect(x, y, SQ, SQ, (f + r) % 2 ? '#c9b6e4' : '#6b4f9a');
+    if (C.sel && C.sel.f === f && C.sel.r === r) rect(x, y, SQ, SQ, 'rgba(255,210,63,.7)');
+  }
+  if (C.state === 'win' && Math.floor(t * 4) % 2 === 0) rect(BX + 7 * SQ, BY, SQ, SQ, '#ff4d6d');
+  for (const p of C.B) drawPiece(p, BX + p.f * SQ + 1, BY + (7 - p.r) * SQ + 1);
+  for (const [f, r] of mv) circ(BX + f * SQ + 10, BY + (7 - r) * SQ + 10, 3, 'rgba(60,255,110,.85)');
+  for (let k = 0; k < 8; k++) { txt('abcdefgh'[k], BX + k * SQ + 10, BY + SQ * 8 + 4, '#b8a8d8', 'center', 6, null); txt(String(8 - k), BX - 7, BY + k * SQ + 7, '#b8a8d8', 'center', 6, null); }
+  rect(4, 252, W - 8, 62, '#f4efe6'); rect(6, 254, W - 12, 58, '#120a20');
+  wrapText(C.msg, W - 24).forEach((l, k) => txt(l, 12, 262 + k * 12, C.state === 'win' ? '#7ee08a' : C.state === 'lose' ? '#ff4d6d' : '#fff', 'left', 8, null));
+  if (C.state !== 'play' && C.t > .8 && Math.floor(t * 2) % 2 === 0) txt('DEVAM', 166, 300, '#ffd23f', 'right', 8, null);
 }
 
 // ======= DÖNGÜ =======
@@ -545,12 +634,13 @@ let last = performance.now() / 1000;
 function update(dt) {
   sceneT += dt;
   if (scene === 'story') story.chars += dt * 40;
+  if (scene === 'chess') C.t += dt;
   if (scene === 'end') for (const c of confetti) { c.y += c.v * dt; if (c.y > H) { c.y = -4; c.x = Math.random() * W; } }
   if (scene !== 'play') return;
   schedule();
   const st = now() - P.start;
   if (P.phase === 'play') {
-    for (const n of P.notes) if (!n.judged && st - n.t > .15) { n.judged = true; onMiss(); P.i === 0 ? pop('KAÇTI', 40, PANEL - 170, '#ff4d6d') : pop('KAÇTI', LANE_X[n.lane], HITY - 22, '#8a7ab8'); }
+    for (const n of P.notes) if (!n.judged && st - n.t > (P.i === 0 ? .2 : .22)) { n.judged = true; onMiss(); P.i === 0 ? pop('KAÇTI', 40, PANEL - 170, '#ff4d6d') : pop('KAÇTI', LANE_X[n.lane], HITY - 22, '#8a7ab8'); }
     if (P.i === 1) while (P.ri < P.notes.length && P.notes[P.ri].t < st) { P.rival += .66; if (P.ri % 2 === 0) puff(140, SCN1 - 6 - 86 + 26, -1, 4, P.ri % 6 === 0); P.ri++; }
     if (st > P.endTime) finish();
   }
@@ -568,6 +658,7 @@ function loop() {
   if (scene === 'title') renderTitle(t);
   else if (scene === 'story') { renderStory(t); hud(); }
   else if (scene === 'play') renderPlay(t);
+  else if (scene === 'chess') renderChess(t);
   else renderEnd(t);
   requestAnimationFrame(loop);
 }
