@@ -128,10 +128,14 @@ function noise(at, dur, vol, freq, type = 'highpass') {
 const blip = (f = 660) => tone(now(), f, .08, 'square', .06);
 
 // ======= HİKAYE & BÖLÜMLER =======
+// Son şarkıda doğru basışlar sırayla bu notaları çalar (Si minör, özgün melodi; istersen kendi notalarınla değiştir)
+const F = { 'Re4': 293.66, 'Mi4': 329.63, 'Fa#4': 369.99, 'Sol4': 392, 'La4': 440, 'Si4': 493.88, 'Do#5': 554.37, 'Re5': 587.33, 'Mi5': 659.25, 'Fa#5': 739.99 };
+const MELODY = ('Si4 Re5 Fa#5 Mi5 Re5 Si4 La4 Si4 Sol4 Si4 Re5 Do#5 Si4 La4 Sol4 Fa#4 ' +
+  'Re4 Fa#4 La4 Si4 La4 Fa#4 Mi4 Re4 Mi4 La4 Do#5 Si4 La4 Sol4 Fa#4 Mi4').split(' ');
 const LEVELS = [
   { name: 'MAHALLE POTASI', bg: 'court', bpm: 100, bars: 14, seed: 3, density: .45, eighths: false, shots: true, bass: [55, 55, 65.4, 49] },
   { name: 'DUMAN KRALI', bg: 'cafe', bpm: 112, bars: 14, seed: 7, density: .5, eighths: true, bass: [41.2, 41.2, 49, 55] },
-  { name: 'SON ŞARKI', bg: 'stage', bpm: 104, bars: 16, seed: 11, density: .6, eighths: true, bass: [82.4, 98, 110, 73.4] },
+  { name: 'SON ŞARKI', bg: 'stage', bpm: 104, bars: 16, seed: 11, density: .6, eighths: true, bass: [61.7, 49, 73.4, 55] },
 ];
 const STEPS = [
   { t: 'story', bg: 'room', lines: [
@@ -194,7 +198,7 @@ function makeChart(L) {
 function startLevel(i) {
   const L = LEVELS[i], notes = makeChart(L);
   scene = 'play';
-  P = { i, L, notes, beat: 60 / L.bpm, start: now() + .4, nextHalf: 0, totalHalf: (LEAD + L.bars * 4) * 2,
+  P = { i, L, notes, mel: 0, beat: 60 / L.bpm, start: now() + .4, nextHalf: 0, totalHalf: (LEAD + L.bars * 4) * 2,
     endTime: notes[notes.length - 1].t + 1.5, phase: 'play', score: 0, combo: 0, maxCombo: 0, hits: 0, perfects: 0, misses: 0,
     lav0: lav, parts: [], pops: [], balls: [], hero: 0, rival: 0, ri: 0, flash: [0, 0, 0], pressed: [0, 0, 0], jump: 0, light: 0, doneAt: 0 };
 }
@@ -230,6 +234,11 @@ function press(lane) {
   addScore(perfect ? 100 : good ? 60 : 30, perfect ? .6 : good ? .35 : .2, perfect);
   pop(perfect ? 'SÜPER!' : good ? 'İYİ' : 'OK', LANE_X[lane], HITY - 22, perfect ? '#ffd23f' : good ? '#fff' : '#7ee08a');
   onHit(lane, perfect);
+  if (P.i === 2) { // gitar: her isabet melodinin sıradaki notası
+    const n = MELODY[P.mel++ % MELODY.length], t = now();
+    tone(t, F[n], .4, 'sawtooth', .07); tone(t, F[n] * 1.005, .35, 'square', .04);
+    pop(n.replace(/\d/, ''), LANE_X[lane], HITY - 36, '#ff6ad5');
+  }
 }
 function addScore(pts, lv, perfect) {
   P.hits++; if (perfect) P.perfects++; P.combo++; P.maxCombo = Math.max(P.maxCombo, P.combo);
@@ -248,8 +257,6 @@ function onHit(lane, perfect) {
     puff(40, SCN1 - 6 - 86 + 26, 1, perfect ? 7 : 4, perfect);
   }
   if (P.i === 2) {
-    const sc = [329.6, 392, 440, 493.9, 587.3], f = sc[(lane * 2 + P.combo) % 5] * (perfect ? 1 : .5) * (P.combo > 20 ? 2 : 1);
-    tone(t, f, .35, 'sawtooth', .07); tone(t, f * 1.005, .3, 'square', .04);
     P.light = 1; P.parts.push({ kind: 'note', x: 90 + (lane - 1) * 20, y: SCN1 - 60, vx: (lane - 1) * 10, vy: -30, life: 1.2, max: 1.2, col: LANE_COL[lane] });
   }
 }
