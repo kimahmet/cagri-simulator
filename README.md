@@ -2,6 +2,12 @@
 
 Çağrı'nın doğum günü için dikey, pixel-art bir ritim oyunu. Üç bölüm: Mahalle Potası (yeşil şut zamanlaması), Duman Kralı (Dumancı Baba'ya karşı) ve Son Şarkı.
 
+<p>
+  <img src="docs/title.jpg" alt="Başlık ekranı: Çağrı, gece şehir manzarası önünde" width="240">
+  <img src="docs/chapter1.jpg" alt="Bölüm 1: Mahalle Potası açılış sahnesi" width="240">
+  <img src="docs/gameplay.jpg" alt="Şut metresi ve ŞUT tuşuyla oynanış" width="240">
+</p>
+
 ## Oyna
 
 - **Web / iPhone / Android tarayıcı:** https://kimahmet.github.io/cagri-simulator/
